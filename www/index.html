@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SeqRename</title>
+<style>
+  :root {
+    --bg: #101418;
+    --card: #181d24;
+    --border: #2a3038;
+    --text: #e8ecf1;
+    --muted: #8a93a1;
+    --accent: #4f8cff;
+    --danger: #ff5f5f;
+    --ok: #3ddc84;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, Roboto, "Segoe UI", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    padding: env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px);
+    min-height: 100vh;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 20px 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; margin-bottom: 14px;
+  }
+  .row { display: flex; gap: 10px; margin-bottom: 12px; }
+  .row > div { flex: 1; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 11px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: #0d1116; color: var(--text);
+    font-size: 15px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    width: 100%; padding: 13px; border-radius: 10px; border: none;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: #232a33; color: var(--text); border: 1px solid var(--border); }
+  .btn-primary:disabled, .btn-secondary:disabled { opacity: 0.4; }
+  #status { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--danger); }
+  ul#list { list-style: none; padding: 0; margin: 0; max-height: 46vh; overflow-y: auto; }
+  ul#list li {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  ul#list li:last-child { border-bottom: none; }
+  .old-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .new-name { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .count { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .gap { height: 10px; }
+</style>
+</head>
+<body>
+
+  <h1>SeqRename</h1>
+  <div class="sub">Batch-rename selected gallery photos with a sequence</div>
+
+  <div class="card">
+    <button class="btn-secondary" id="pickBtn">Select Photos</button>
+    <div class="count" id="pickedCount"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Prefix</label>
+        <input type="text" id="prefix" placeholder="e.g. Pole" />
+      </div>
+      <div>
+        <label>Start number</label>
+        <input type="number" id="startNum" value="1" min="0" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Digit padding</label>
+        <input type="number" id="padding" value="3" min="1" max="6" />
+      </div>
+      <div>
+        <label>Step</label>
+        <input type="number" id="step" value="1" min="1" />
+      </div>
+    </div>
+    <button class="btn-secondary" id="previewBtn">Preview Names</button>
+  </div>
+
+  <div class="card" id="listCard" style="display:none;">
+    <ul id="list"></ul>
+  </div>
+
+  <button class="btn-primary" id="renameBtn" disabled>Rename Selected</button>
+  <div id="status"></div>
+  <div class="gap"></div>
+
+<script src="capacitor.js"></script>
+<script>
+  const { Capacitor } = window;
+  const SeqRename = Capacitor.Plugins.SeqRename;
+
+  let photos = [];       // [{uri, name}]
+  let previewNames = []; // parallel array of computed new names (with extension)
+
+  const pickBtn = document.getElementById('pickBtn');
+  const previewBtn = document.getElementById('previewBtn');
+  const renameBtn = document.getElementById('renameBtn');
+  const listCard = document.getElementById('listCard');
+  const listEl = document.getElementById('list');
+  const statusEl = document.getElementById('status');
+  const pickedCountEl = document.getElementById('pickedCount');
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = kind || '';
+  }
+
+  function extOf(name) {
+    const i = name.lastIndexOf('.');
+    return i >= 0 ? name.slice(i) : '';
+  }
+
+  pickBtn.addEventListener('click', async () => {
+    setStatus('');
+    try {
+      const res = await SeqRename.pickPhotos();
+      photos = res.photos || [];
+      pickedCountEl.textContent = photos.length
+        ? `${photos.length} photo(s) selected`
+        : '';
+      listCard.style.display = 'none';
+      renameBtn.disabled = true;
+    } catch (e) {
+      setStatus('Selection cancelled or failed', 'err');
+    }
+  });
+
+  previewBtn.addEventListener('click', () => {
+    if (!photos.length) {
+      setStatus('Select photos first', 'err');
+      return;
+    }
+    const prefix = document.getElementById('prefix').value.trim();
+    const start = parseInt(document.getElementById('startNum').value, 10) || 0;
+    const pad = Math.max(1, parseInt(document.getElementById('padding').value, 10) || 1);
+    const step = Math.max(1, parseInt(document.getElementById('step').value, 10) || 1);
+
+    previewNames = photos.map((p, i) => {
+      const num = String(start + i * step).padStart(pad, '0');
+      const base = prefix ? `${prefix}_${num}` : num;
+      return base + extOf(p.name);
+    });
+
+    listEl.innerHTML = '';
+    photos.forEach((p, i) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="old-name">${p.name}</span><span class="new-name">${previewNames[i]}</span>`;
+      listEl.appendChild(li);
+    });
+    listCard.style.display = 'block';
+    renameBtn.disabled = false;
+    setStatus('');
+  });
+
+  renameBtn.addEventListener('click', async () => {
+    if (!photos.length || previewNames.length !== photos.length) return;
+    renameBtn.disabled = true;
+    pickBtn.disabled = true;
+    setStatus('Renaming…');
+    const items = photos.map((p, i) => ({ uri: p.uri, newName: previewNames[i] }));
+    try {
+      const res = await SeqRename.renamePhotos({ items });
+      const failedCount = (res.failed || []).length;
+      if (failedCount === 0) {
+        setStatus(`Renamed ${res.successCount} photo(s)`, 'ok');
+      } else {
+        setStatus(`Renamed ${res.successCount}, ${failedCount} failed`, 'err');
+      }
+    } catch (e) {
+      setStatus('Rename failed: ' + (e.message || e), 'err');
+    } finally {
+      pickBtn.disabled = false;
+      renameBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
