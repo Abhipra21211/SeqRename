@@ -60,3 +60,4 @@ included here to keep the plugin simple; ask if you need it added.
 `android/app/build.gradle` (`applicationId`) before a real release.
 <!-- test Thu Sep 24 09:24:50 UTC 2026 -->
 test edit Thu Sep 24 09:24:59 UTC 2026
+test edit Thu Sep 24 09:25:06 UTC 2026
