@@ -1,7 +1,6 @@
 package com.prasonnis.seqrename;
 
 import android.app.Activity;
-import android.app.RecoverableActionException;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.IntentSender;
