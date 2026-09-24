@@ -58,3 +58,4 @@ included here to keep the plugin simple; ask if you need it added.
 
 `com.prasonnis.seqrename` — change in `capacitor.config.ts` and
 `android/app/build.gradle` (`applicationId`) before a real release.
+<!-- test Thu Sep 24 09:24:50 UTC 2026 -->
