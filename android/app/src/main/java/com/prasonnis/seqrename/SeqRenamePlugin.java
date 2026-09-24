@@ -5,10 +5,17 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.util.Base64;
+import android.util.Size;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 
 import androidx.activity.result.ActivityResult;
 
@@ -71,11 +78,36 @@ public class SeqRenamePlugin extends Plugin {
             JSObject obj = new JSObject();
             obj.put("uri", uri.toString());
             obj.put("name", queryDisplayName(uri));
+            obj.put("thumb", getThumbnailBase64(uri));
             photos.put(obj);
         }
         JSObject ret = new JSObject();
         ret.put("photos", photos);
         call.resolve(ret);
+    }
+
+    // Small (~200px) JPEG thumbnail, base64-encoded, for in-app preview before renaming.
+    // Returns null on any failure — caller must treat a missing thumb as "no preview".
+    private String getThumbnailBase64(Uri uri) {
+        try {
+            Bitmap bitmap;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                bitmap = getContext().getContentResolver()
+                        .loadThumbnail(uri, new Size(200, 200), null);
+            } else {
+                try (InputStream is = getContext().getContentResolver().openInputStream(uri)) {
+                    BitmapFactory.Options opts = new BitmapFactory.Options();
+                    opts.inSampleSize = 4;
+                    bitmap = BitmapFactory.decodeStream(is, null, opts);
+                }
+            }
+            if (bitmap == null) return null;
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 60, baos);
+            return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String queryDisplayName(Uri uri) {

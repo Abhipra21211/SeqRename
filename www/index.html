@@ -57,8 +57,20 @@
     font-size: 13px;
   }
   ul#list li:last-child { border-bottom: none; }
-  .old-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  .new-name { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  ul#list li { align-items: center; }
+  .thumb {
+    width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
+    background: #0d1116; flex-shrink: 0;
+  }
+  .thumb-placeholder {
+    width: 44px; height: 44px; border-radius: 8px; background: #0d1116;
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 10px;
+  }
+  .names { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .old-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .new-name { color: var(--accent); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sel-check { width: 20px; height: 20px; flex-shrink: 0; }
   .count { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
   .gap { height: 10px; }
 </style>
@@ -110,8 +122,9 @@
   const { Capacitor } = window;
   const SeqRename = Capacitor.Plugins.SeqRename;
 
-  let photos = [];       // [{uri, name}]
+  let photos = [];       // [{uri, name, thumb}]
   let previewNames = []; // parallel array of computed new names (with extension)
+  let selected = [];     // parallel array of booleans — which photos are included in the rename
 
   const pickBtn = document.getElementById('pickBtn');
   const previewBtn = document.getElementById('previewBtn');
@@ -136,8 +149,9 @@
     try {
       const res = await SeqRename.pickPhotos();
       photos = res.photos || [];
+      selected = photos.map(() => true);
       pickedCountEl.textContent = photos.length
-        ? `${photos.length} photo(s) selected`
+        ? `${photos.length} photo(s) picked — tap to preview`
         : '';
       listCard.style.display = 'none';
       renameBtn.disabled = true;
@@ -146,31 +160,60 @@
     }
   });
 
-  previewBtn.addEventListener('click', () => {
-    if (!photos.length) {
-      setStatus('Select photos first', 'err');
-      return;
-    }
+  function renderPreview() {
     const prefix = document.getElementById('prefix').value.trim();
     const start = parseInt(document.getElementById('startNum').value, 10) || 0;
     const pad = Math.max(1, parseInt(document.getElementById('padding').value, 10) || 1);
     const step = Math.max(1, parseInt(document.getElementById('step').value, 10) || 1);
 
-    previewNames = photos.map((p, i) => {
-      const num = String(start + i * step).padStart(pad, '0');
-      const base = prefix ? `${prefix}_${num}` : num;
-      return base + extOf(p.name);
+    // Sequence numbers only advance for checked photos, so unchecking one
+    // doesn't leave a gap in the numbering for the rest.
+    previewNames = new Array(photos.length).fill('');
+    let seq = start;
+    photos.forEach((p, i) => {
+      if (!selected[i]) return;
+      const num = String(seq).padStart(pad, '0');
+      previewNames[i] = (prefix ? `${prefix}_${num}` : num) + extOf(p.name);
+      seq += step;
     });
 
     listEl.innerHTML = '';
     photos.forEach((p, i) => {
       const li = document.createElement('li');
-      li.innerHTML = `<span class="old-name">${p.name}</span><span class="new-name">${previewNames[i]}</span>`;
+      const thumbHtml = p.thumb
+        ? `<img class="thumb" src="data:image/jpeg;base64,${p.thumb}" alt="" />`
+        : `<div class="thumb-placeholder">n/a</div>`;
+      const newNameHtml = selected[i]
+        ? previewNames[i]
+        : '<span style="opacity:.5">skipped</span>';
+      li.innerHTML = `
+        <input type="checkbox" class="sel-check" data-idx="${i}" ${selected[i] ? 'checked' : ''} />
+        ${thumbHtml}
+        <div class="names">
+          <span class="old-name">${p.name}</span>
+          <span class="new-name">${newNameHtml}</span>
+        </div>`;
       listEl.appendChild(li);
     });
     listCard.style.display = 'block';
-    renameBtn.disabled = false;
+    const anySelected = selected.some(Boolean);
+    renameBtn.disabled = !anySelected;
+  }
+
+  previewBtn.addEventListener('click', () => {
+    if (!photos.length) {
+      setStatus('Select photos first', 'err');
+      return;
+    }
+    renderPreview();
     setStatus('');
+  });
+
+  listEl.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('sel-check')) return;
+    const idx = parseInt(e.target.dataset.idx, 10);
+    selected[idx] = e.target.checked;
+    renderPreview(); // recompute sequence numbers around the skipped photo
   });
 
   renameBtn.addEventListener('click', async () => {
@@ -178,7 +221,9 @@
     renameBtn.disabled = true;
     pickBtn.disabled = true;
     setStatus('Renaming…');
-    const items = photos.map((p, i) => ({ uri: p.uri, newName: previewNames[i] }));
+    const items = photos
+      .map((p, i) => (selected[i] ? { uri: p.uri, newName: previewNames[i] } : null))
+      .filter(Boolean);
     try {
       const res = await SeqRename.renamePhotos({ items });
       const failedCount = (res.failed || []).length;
